@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Công cụ Phân tích Văn bản NLP</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1><i class="fas fa-brain"></i> Công cụ Phân tích Văn bản NLP</h1>
+            <p>Phân tích văn bản với Tokenization, POS Tagging và Named Entity Recognition</p>
+            <p class="language-support"><i class="fas fa-globe"></i> Hỗ trợ: Tiếng Việt 🇻🇳 | English 🇺🇸</p>
+        </header>
+
+        <main class="main-content">
+            <div class="input-section">
+                <div class="input-group">
+                    <label for="textInput">Nhập văn bản cần phân tích:</label>
+                    <textarea 
+                        id="textInput" 
+                        placeholder="Nhập văn bản tiếng Việt hoặc tiếng Anh của bạn ở đây...&#10;&#10;Ví dụ tiếng Việt: Công ty Apple Inc. có trụ sở tại Cupertino, California. Tim Cook là CEO của công ty.&#10;Ví dụ tiếng Anh: Apple Inc. is located in Cupertino, California. Tim Cook is the CEO."
+                        rows="6"
+                    ></textarea>
+                </div>
+                <button id="analyzeBtn" class="analyze-btn">
+                    <i class="fas fa-search"></i> Phân tích văn bản
+                </button>
+            </div>
+
+            <div id="loadingIndicator" class="loading hidden">
+                <i class="fas fa-spinner fa-spin"></i>
+                <span>Đang phân tích văn bản...</span>
+            </div>
+
+            <div id="results" class="results hidden">
+                <div class="result-section language-info">
+                    <h2><i class="fas fa-language"></i> Thông tin Ngôn ngữ</h2>
+                    <div id="languageInfo" class="language-info-content"></div>
+                </div>
+
+                <div class="result-section">
+                    <h2><i class="fas fa-list"></i> Danh sách Token</h2>
+                    <div id="tokensList" class="token-list"></div>
+                </div>
+
+                <div class="result-section">
+                    <h2><i class="fas fa-tags"></i> POS Tags</h2>
+                    <div id="posTags" class="pos-tags"></div>
+                </div>
+
+                <div class="result-section">
+                    <h2><i class="fas fa-code"></i> Phân tích Chi tiết</h2>
+                    <div id="spacyAnalysis" class="spacy-analysis"></div>
+                </div>
+
+                <div class="result-section">
+                    <h2><i class="fas fa-map-marker-alt"></i> Named Entity Recognition</h2>
+                    <div id="entitiesList" class="entities-list"></div>
+                </div>
+            </div>
+
+            <div id="errorMessage" class="error-message hidden">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span id="errorText"></span>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>Được xây dựng với Flask, NLTK và spaCy</p>
+        </footer>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            const textInput = document.getElementById('textInput');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const results = document.getElementById('results');
+            const errorMessage = document.getElementById('errorMessage');
+            const errorText = document.getElementById('errorText');
+
+            analyzeBtn.addEventListener('click', analyzeText);
+
+            textInput.addEventListener('keydown', function(e) {
+                if (e.ctrlKey && e.key === 'Enter') {
+                    analyzeText();
+                }
+            });
+
+            async function analyzeText() {
+                const text = textInput.value.trim();
+                
+                if (!text) {
+                    showError('Vui lòng nhập văn bản để phân tích');
+                    return;
+                }
+
+                showLoading();
+                hideError();
+                hideResults();
+
+                try {
+                    const response = await fetch('/analyze', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ text: text })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        displayResults(data.result);
+                    } else {
+                        showError(data.error || 'Có lỗi xảy ra khi phân tích văn bản');
+                    }
+                } catch (error) {
+                    showError('Lỗi kết nối: ' + error.message);
+                } finally {
+                    hideLoading();
+                }
+            }
+
+            function displayResults(result) {
+                // Hiển thị thông tin ngôn ngữ
+                displayLanguageInfo(result);
+                
+                // Hiển thị tokens
+                displayTokens(result.nltk_analysis.tokens);
+                
+                // Hiển thị POS tags
+                displayPOSTags(result.nltk_analysis.pos_tags);
+                
+                // Hiển thị phân tích chi tiết
+                if (result.spacy_analysis) {
+                    displaySpacyAnalysis(result.spacy_analysis.tokens_with_pos);
+                    displayEntities(result.spacy_analysis.entities);
+                } else {
+                    document.getElementById('spacyAnalysis').innerHTML = 
+                        '<p class="warning">Không thể phân tích chi tiết văn bản này.</p>';
+                    document.getElementById('entitiesList').innerHTML = 
+                        '<p class="warning">Không tìm thấy thực thể được đặt tên.</p>';
+                }
+                
+                showResults();
+            }
+
+            function displayLanguageInfo(result) {
+                const container = document.getElementById('languageInfo');
+                const language = result.language;
+                const detectedLang = result.detected_language;
+                
+                let languageName = '';
+                let flag = '';
+                let description = '';
+                
+                if (language === 'vietnamese') {
+                    languageName = 'Tiếng Việt';
+                    flag = '🇻🇳';
+                    description = 'Văn bản được phân tích bằng thư viện tiếng Việt (pyvi, underthesea)';
+                } else {
+                    languageName = 'English';
+                    flag = '🇺🇸';
+                    description = 'Văn bản được phân tích bằng NLTK và spaCy';
+                }
+                
+                container.innerHTML = `
+                    <div class="language-detected">
+                        <span class="language-flag">${flag}</span>
+                        <span class="language-name">${languageName}</span>
+                        <span class="language-code">(${detectedLang})</span>
+                    </div>
+                    <div class="language-description">${description}</div>
+                `;
+            }
+
+            function displayTokens(tokens) {
+                const container = document.getElementById('tokensList');
+                container.innerHTML = tokens.map(token => 
+                    `<span class="token">${escapeHtml(token)}</span>`
+                ).join(' ');
+            }
+
+            function displayPOSTags(posTags) {
+                const container = document.getElementById('posTags');
+                container.innerHTML = posTags.map(([token, pos]) => {
+                    // Tạo mô tả chi tiết cho POS tag
+                    const posDescription = getPOSDescription(pos);
+                    return `<span class="pos-tag" title="${posDescription}">
+                        <span class="token">${escapeHtml(token)}</span>
+                        <span class="pos">${pos}</span>
+                    </span>`;
+                }).join(' ');
+            }
+
+            function getPOSDescription(pos) {
+                const descriptions = {
+                    // Danh từ
+                    'N': 'Danh từ chung (Noun)',
+                    'Np': 'Danh từ riêng (Proper Noun)',
+                    'Nu': 'Danh từ đơn vị (Unit Noun)',
+                    'Nc': 'Danh từ chỉ loại (Classifier Noun)',
+                    
+                    // Động từ
+                    'V': 'Động từ (Verb)',
+                    'Vb': 'Động từ bổ trợ (Auxiliary Verb)',
+                    'Vv': 'Động từ vị ngữ (Predicative Verb)',
+                    
+                    // Tính từ
+                    'A': 'Tính từ (Adjective)',
+                    'Ab': 'Tính từ bổ trợ (Auxiliary Adjective)',
+                    
+                    // Đại từ
+                    'P': 'Đại từ (Pronoun)',
+                    'Pp': 'Đại từ nhân xưng (Personal Pronoun)',
+                    'Pd': 'Đại từ chỉ định (Demonstrative Pronoun)',
+                    'Pq': 'Đại từ nghi vấn (Interrogative Pronoun)',
+                    
+                    // Số từ
+                    'M': 'Số từ (Numeral)',
+                    'Mc': 'Số từ chỉ số lượng (Cardinal Numeral)',
+                    'Mo': 'Số từ thứ tự (Ordinal Numeral)',
+                    
+                    // Phó từ
+                    'R': 'Phó từ (Adverb)',
+                    'Rg': 'Phó từ chỉ mức độ (Degree Adverb)',
+                    'Rr': 'Phó từ chỉ thời gian (Time Adverb)',
+                    'Rs': 'Phó từ chỉ nơi chốn (Place Adverb)',
+                    
+                    // Giới từ
+                    'E': 'Giới từ (Preposition)',
+                    'Ec': 'Giới từ chỉ nơi chốn (Place Preposition)',
+                    'Et': 'Giới từ chỉ thời gian (Time Preposition)',
+                    
+                    // Liên từ
+                    'C': 'Liên từ (Conjunction)',
+                    'Cc': 'Liên từ kết hợp (Coordinating Conjunction)',
+                    'Cs': 'Liên từ phụ thuộc (Subordinating Conjunction)',
+                    
+                    // Thán từ
+                    'I': 'Thán từ (Interjection)',
+                    
+                    // Trợ từ
+                    'T': 'Trợ từ (Particle)',
+                    'Td': 'Trợ từ định ngữ (Determiner Particle)',
+                    'Tg': 'Trợ từ ngữ khí (Modal Particle)',
+                    
+                    // Dấu câu
+                    'CH': 'Dấu câu (Punctuation)',
+                    'CHp': 'Dấu chấm (Period)',
+                    'CHc': 'Dấu phẩy (Comma)',
+                    'CHh': 'Dấu hỏi (Question Mark)',
+                    'CHk': 'Dấu chấm than (Exclamation Mark)',
+                    
+                    // Từ ngoại lai
+                    'FW': 'Từ ngoại lai (Foreign Word)',
+                    
+                    // Khác
+                    'X': 'Từ khác (Other)',
+                    'Y': 'Từ viết tắt (Abbreviation)',
+                    'Z': 'Từ không xác định (Unknown)',
+                    
+                    // POS tags tiếng Anh (NLTK)
+                    'NN': 'Danh từ chung (Noun)',
+                    'NNP': 'Danh từ riêng (Proper Noun)',
+                    'NNS': 'Danh từ số nhiều (Plural Noun)',
+                    'VB': 'Động từ gốc (Base Verb)',
+                    'VBD': 'Động từ quá khứ (Past Tense Verb)',
+                    'VBG': 'Động từ hiện tại phân từ (Present Participle)',
+                    'VBN': 'Động từ quá khứ phân từ (Past Participle)',
+                    'VBP': 'Động từ hiện tại (Present Tense Verb)',
+                    'VBZ': 'Động từ hiện tại số ít (3rd Person Singular)',
+                    'JJ': 'Tính từ (Adjective)',
+                    'JJR': 'Tính từ so sánh hơn (Comparative Adjective)',
+                    'JJS': 'Tính từ so sánh nhất (Superlative Adjective)',
+                    'PRP': 'Đại từ nhân xưng (Personal Pronoun)',
+                    'PRP$': 'Đại từ sở hữu (Possessive Pronoun)',
+                    'DT': 'Từ hạn định (Determiner)',
+                    'IN': 'Giới từ (Preposition)',
+                    'CC': 'Liên từ kết hợp (Coordinating Conjunction)',
+                    'CD': 'Số từ (Cardinal Number)',
+                    'RB': 'Phó từ (Adverb)',
+                    'RBR': 'Phó từ so sánh hơn (Comparative Adverb)',
+                    'RBS': 'Phó từ so sánh nhất (Superlative Adverb)',
+                    'MD': 'Động từ khuyết thiếu (Modal)',
+                    'TO': 'To (Infinitive Marker)',
+                    'WDT': 'Từ hạn định nghi vấn (Wh-determiner)',
+                    'WP': 'Đại từ nghi vấn (Wh-pronoun)',
+                    'WP$': 'Đại từ sở hữu nghi vấn (Possessive Wh-pronoun)',
+                    'WRB': 'Phó từ nghi vấn (Wh-adverb)',
+                    'EX': 'There (Existential there)',
+                    'FW': 'Từ ngoại lai (Foreign Word)',
+                    'LS': 'Ký hiệu danh sách (List Marker)',
+                    'POS': 'Sở hữu (Possessive Ending)',
+                    'RP': 'Tiểu từ (Particle)',
+                    'SYM': 'Ký hiệu (Symbol)',
+                    'UH': 'Thán từ (Interjection)'
+                };
+                return descriptions[pos] || `${pos} (Không xác định)`;
+            }
+
+            function displaySpacyAnalysis(tokensWithPos) {
+                const container = document.getElementById('spacyAnalysis');
+                container.innerHTML = `
+                    <div class="spacy-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Token</th>
+                                    <th>POS</th>
+                                    <th>Tag</th>
+                                    <th>Lemma</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${tokensWithPos.map(token => {
+                                    const posDescription = getPOSDescription(token.pos);
+                                    const tagDescription = getPOSDescription(token.tag);
+                                    return `
+                                    <tr>
+                                        <td>${escapeHtml(token.token)}</td>
+                                        <td><span class="pos-badge" title="${posDescription}">${token.pos}</span></td>
+                                        <td><span class="tag-badge" title="${tagDescription}">${token.tag}</span></td>
+                                        <td>${escapeHtml(token.lemma)}</td>
+                                    </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+
+            function displayEntities(entities) {
+                const container = document.getElementById('entitiesList');
+                
+                if (entities.length === 0) {
+                    container.innerHTML = '<p class="no-entities">Không tìm thấy thực thể được đặt tên nào.</p>';
+                    return;
+                }
+
+                container.innerHTML = entities.map(entity => `
+                    <div class="entity-item">
+                        <span class="entity-text">${escapeHtml(entity.text)}</span>
+                        <span class="entity-label ${entity.label.toLowerCase()}">${entity.label}</span>
+                        <span class="entity-description">${entity.description}</span>
+                    </div>
+                `).join('');
+            }
+
+            function showLoading() {
+                loadingIndicator.classList.remove('hidden');
+            }
+
+            function hideLoading() {
+                loadingIndicator.classList.add('hidden');
+            }
+
+            function showResults() {
+                results.classList.remove('hidden');
+            }
+
+            function hideResults() {
+                results.classList.add('hidden');
+            }
+
+            function showError(message) {
+                errorText.textContent = message;
+                errorMessage.classList.remove('hidden');
+            }
+
+            function hideError() {
+                errorMessage.classList.add('hidden');
+            }
+
+            function escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        });
+    </script>
+</body>
+</html>
